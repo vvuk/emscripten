@@ -728,6 +728,10 @@ main(int argc, char *argv[])
 
    glutCreateWindow("es2gears");
 
+#ifdef GLES_INDIRECT_TEST
+   init_indirect();
+#endif
+
    /* Set up glut callback functions */
    glutIdleFunc (gears_idle);
    glutReshapeFunc(gears_reshape);

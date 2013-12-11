@@ -704,6 +704,100 @@ var LibraryGL = {
     }
   },
 
+  glFileTexImage2DEMSCRIPTEN__sig: 'viiiiiii',
+  glFileTexImage2DEMSCRIPTEN: function(target, level, internalformat, format, type, filenamePtr, counter) {
+    var targetParam;
+    var filename = Pointer_stringify(filenamePtr);
+
+    switch (target) {
+    case Module.ctx.TEXTURE_2D:
+      targetParam = Module.ctx.TEXTURE_BINDING_2D;
+      break;
+    case Module.ctx.TEXTURE_CUBE_MAP_POSITIVE_X:
+    case Module.ctx.TEXTURE_CUBE_MAP_NEGATIVE_X:
+    case Module.ctx.TEXTURE_CUBE_MAP_POSITIVE_Y:
+    case Module.ctx.TEXTURE_CUBE_MAP_NEGATIVE_Y:
+    case Module.ctx.TEXTURE_CUBE_MAP_POSITIVE_X:
+    case Module.ctx.TEXTURE_CUBE_MAP_NEGATIVE_Z:
+      targetParam = Module.ctx.TEXTURE_BINDING_CUBE_MAP;
+      break;
+    default:
+      Module.printErr('WARNING: glFileTexImage2DEMSCRIPTEN called with invalid target');
+      return;
+    }
+
+    // lets see if we can get the file, otherwise everything else is in vain
+    var pathObj = FS.lookupPath(filename);
+    if (!pathObj) {
+      return;
+    }
+
+    if (!pathObj.node || !pathObj.node.contents) {
+      Module.printErr('WARNING: missing node contents');
+      return;
+    }
+
+    // type is irrelevant, the browser will sniff anyway
+    var blob = new Blob([pathObj.node.contents], {type: 'application/octet-binary'});
+    var blobURL = URL.createObjectURL(blob);
+
+    // we need to save the state of these things for when we do the actual final load
+    var tex = Module.ctx.getParameter(targetParam);
+    var flipy = Module.ctx.getParameter(Module.ctx.UNPACK_FLIP_Y_WEBGL);
+    var premult = Module.ctx.getParameter(Module.ctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+    var docms = Module.ctx.getParameter(Module.ctx.UNPACK_COLORSPACE_CONVERSION_WEBGL);
+
+    var img = new Image();
+    img.onerror = function() {
+      Module.printErr('WARNING: glFileTexImage2DEMSCRIPTEN image "' + filename + '" failed to load');
+      URL.revokeObjectURL(blobURL);
+      if (counter) {
+	var countval = {{{ makeGetValue('counter', '0', 'i32') }}};
+	countval = countval - 1;
+	{{{ makeSetValue('counterf', '0', 'countval', 'i32') }}};
+      }
+    };
+    img.onload = function() {
+      // save the current state of the context
+      var ctex = Module.ctx.getParameter(targetParam);
+      var cflipy = Module.ctx.getParameter(Module.ctx.UNPACK_FLIP_Y_WEBGL);
+      var cpremult = Module.ctx.getParameter(Module.ctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
+      var cdocms = Module.ctx.getParameter(Module.ctx.UNPACK_COLORSPACE_CONVERSION_WEBGL);
+
+      // make the context match for the upload
+      if (tex != ctex)
+	Module.ctx.bindTexture(target, tex);
+      if (flipy != cflipy)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_FLIP_Y_WEBGL, flipy);
+      if (premult != cpremult)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, premult);
+      if (docms != cdocms)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_COLORSPACE_CONVERSION_WEBGL, docms);
+
+      Module.ctx.texImage2D(target, level, internalformat, format, type, img);
+
+      // undo our changes
+      if (tex != ctex)
+	Module.ctx.bindTexture(target, ctex);
+      if (flipy != cflipy)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_FLIP_Y_WEBGL, cflipy);
+      if (premult != cpremult)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, cpremult);
+      if (docms != cdocms)
+	Module.ctx.pixelStorei(Module.ctx.UNPACK_COLORSPACE_CONVERSION_WEBGL, cdocms);
+
+      URL.revokeObjectURL(blobURL);
+      if (counter) {
+	var countval = {{{ makeGetValue('counter', '0', 'i32') }}};
+	countval = countval - 1;
+	{{{ makeSetValue('counterf', '0', 'countval', 'i32') }}};
+      }
+    };
+
+    // kick off the load
+    img.src = blobURL;
+  },
+
   glCompressedTexImage2D__sig: 'viiiiiiii',
   glCompressedTexImage2D: function(target, level, internalFormat, width, height, border, imageSize, data) {
 #if ASSERTIONS
@@ -2264,7 +2358,7 @@ var LibraryGL = {
 #if FULL_ES2 == 0
   $GLImmediate__postset: 'GL.immediate.setupFuncs(); Browser.moduleContextCreatedCallbacks.push(function() { GL.immediate.init() });',
 #endif
-  $GLImmediate__deps: ['$Browser', '$GL', '$GLEmulation'],
+  $GLImmediate__deps: ['$Browser', '$GL', '$GLEmulation', '$FS'],
   $GLImmediate: {
     MapTreeLib: null,
     spawnMapTreeLib: function() {
